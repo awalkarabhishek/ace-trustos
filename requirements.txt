@@ -4,9 +4,4 @@ flask-sqlalchemy
 flask-limiter
 werkzeug
 python-dotenv
-easyocr
-face-recognition
-opencv-python-headless
-pillow
-numpy
 gunicorn
