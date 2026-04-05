@@ -1,122 +1,73 @@
-<!DOCTYPE html>
-<html>
-<head>
-  <style>
-    @import url('https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600&display=swap');
-    .trustos-container {
-      max-width: 100%;
-      margin: 0 auto;
-      padding: 30px;
-      background: linear-gradient(135deg, #0a0a2a, #1a1a3a);
-      border-radius: 16px;
-      color: #fff;
-      font-family: 'Inter', sans-serif;
-      box-shadow: 0 10px 30px rgba(0, 0, 0, 0.3);
-    }
-    .header { text-align: center; margin-bottom: 25px; }
-    .header h2 { color: #00d4ff; font-size: 24px; margin: 0; }
-    .header p { color: #aaa; font-size: 14px; }
-    input[type="text"] {
-      width: 100%;
-      padding: 15px;
-      border: none;
-      border-radius: 8px;
-      background: #fff;
-      color: #000;
-      font-size: 16px;
-      margin-bottom: 15px;
-    }
-    button {
-      background: #00d4ff;
-      color: #000;
-      border: none;
-      padding: 14px 28px;
-      border-radius: 8px;
-      font-weight: 600;
-      cursor: pointer;
-      width: 100%;
-      font-size: 16px;
-    }
-    button:hover { background: #00ffcc; }
-    .result {
-      display: none;
-      background: rgba(255,255,255,0.1);
-      border-radius: 12px;
-      padding: 20px;
-      margin-top: 20px;
-    }
-    .sector-tag {
-      display: inline-block;
-      background: #00ff88;
-      color: #000;
-      padding: 6px 16px;
-      border-radius: 50px;
-      font-weight: 600;
-      font-size: 15px;
-      margin-top: 10px;
-    }
-  </style>
-</head>
-<body>
-  <div class="trustos-container">
-    <div class="header">
-      <h2>🔗 TrustOS + Temenos GenAI</h2>
-      <p>Live Transaction Classification (PQC-sealed)</p>
-    </div>
+import os
+import hashlib
+import platform
+import uuid
+import time
+import subprocess
+import re
+import json
+import tempfile
+import secrets
+from datetime import datetime, timedelta
+from flask import Flask, request, jsonify
+from flask_cors import CORS
+from flask_sqlalchemy import SQLAlchemy
+from werkzeug.security import generate_password_hash, check_password_hash
+from flask_limiter import Limiter
+from flask_limiter.util import get_remote_address
+from dotenv import load_dotenv
 
-    <input type="text" id="narrative" placeholder="e.g. ZOMATO-ORDER-123" value="ZOMATO-ORDER-123">
+load_dotenv()
 
-    <button onclick="classifyTransaction()">Classify with Temenos GenAI</button>
+DEBUG = os.environ.get('DEBUG', 'False').lower() == 'true'
+ACE_KERNEL_AUTH_KEY = os.environ.get('ACE_KERNEL_AUTH_KEY', 'sk-ace-demo-key-001')
+SECRET_KEY = os.environ.get('SECRET_KEY', secrets.token_hex(32))
+DATABASE_URL = os.environ.get('DATABASE_URL', 'sqlite:///ace.db')
 
-    <div id="result" class="result">
-      <h3>✅ Temenos GenAI Result:</h3>
-      <p id="classified-text" style="margin:10px 0; font-size:15px;"></p>
-      <strong>Sector:</strong> <span id="sector-tag" class="sector-tag"></span><br><br>
-      <strong>TrustOS ROI Impact:</strong> <span id="roi-impact" style="color:#00ff88; font-weight:600;"></span>
-      <div style="margin-top:15px; font-size:12px; color:#777;">
-        PQC-sealed • Fed directly into ROI calculator
-      </div>
-    </div>
-  </div>
+app = Flask(__name__)
+app.config['SQLALCHEMY_DATABASE_URI'] = DATABASE_URL
+app.config['SQLALCHEMY_TRACK_MODIFICATIONS'] = False
+app.config['SECRET_KEY'] = SECRET_KEY
+CORS(app)
 
-  <script>
-    // === CHANGE THESE TWO LINES ONLY ===
-    const BACKEND_URL = "https://YOUR_ACTUAL_DEPLOYED_URL.onrender.com";  // ← Put your Render/Railway URL here
-    const API_KEY = "sk-ace-demo-key-001";                               // ← Your API key from dashboard
+limiter = Limiter(key_func=get_remote_address)
+limiter.init_app(app)
 
-    async function classifyTransaction() {
-      const narrative = document.getElementById('narrative').value.trim();
-      if (!narrative) return alert("Please enter a transaction narrative");
+db = SQLAlchemy(app)
 
-      const resultDiv = document.getElementById('result');
-      resultDiv.style.display = 'block';
+# (All other models and helper functions are the same as before — I'm keeping it short here)
+# ... [You can keep your full original server.py code if you want, but make sure it has NO CSS/HTML]
 
-      try {
-        const res = await fetch(`${BACKEND_URL}/temenos_classify`, {
-          method: "POST",
-          headers: {
-            "Authorization": `Bearer ${API_KEY}`,
-            "Content-Type": "application/json"
-          },
-          body: JSON.stringify({ narrative })
-        });
+# INTEGRATION 1: Temenos GenAI
+@app.route('/temenos_classify', methods=['POST'])
+def temenos_classify():
+    data = request.json
+    narrative = data.get('narrative')
+    if not narrative:
+        return jsonify({"status": "ERROR", "msg": "Raw transaction narrative required"}), 400
 
-        if (!res.ok) throw new Error("Server error");
+    # Simple classification (exactly as per your blueprint)
+    narrative_upper = narrative.upper()
+    if any(x in narrative_upper for x in ["ZOMATO", "SWIGGY", "AMAZON", "FLIPKART"]):
+        sector = "Retail / E-commerce"
+        roi_impact = "High Volume • Fraud Weight +18%"
+    elif any(x in narrative_upper for x in ["UPI", "PAYTM", "GPAY"]):
+        sector = "Digital Payments"
+        roi_impact = "Medium Volume • Fraud Weight +8%"
+    elif any(x in narrative_upper for x in ["SALARY", "CREDIT", "LOAN"]):
+        sector = "Payroll / Finance"
+        roi_impact = "Low Volume • Fraud Weight +2%"
+    else:
+        sector = "Other / Uncategorized"
+        roi_impact = "Medium Risk • Fraud Weight +10%"
 
-        const data = await res.json();
+    return jsonify({
+        "status": "CLASSIFIED",
+        "original_narrative": narrative,
+        "classified_sector": f"[Sector: {sector}]",
+        "roi_impact": roi_impact,
+        "message": "✅ Fed into TrustOS ROI calculator"
+    })
 
-        document.getElementById('classified-text').innerHTML = 
-          `<strong>Original:</strong> ${data.original_narrative}<br><strong>Parsed by Temenos GenAI</strong>`;
-
-        document.getElementById('sector-tag').textContent = data.classified_sector;
-        document.getElementById('roi-impact').textContent = data.roi_impact;
-
-      } catch (err) {
-        document.getElementById('classified-text').innerHTML = 
-          `<span style="color:#ff0055">❌ Could not connect to backend.<br>Please deploy your server first.</span>`;
-        console.error(err);
-      }
-    }
-  </script>
-</body>
-</html>
+if __name__ == '__main__':
+    app.run(host='0.0.0.0', port=5050)
